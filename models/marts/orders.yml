@@ -135,8 +135,8 @@ metrics:
     type_params:
       measure: order_total
 
-  - name: order_cost
-    label: Order Cost
+  - name: order_supply_cost
+    label: Order Supply Cost
     description: Sum of supply costs to fulfill orders.
     type: simple
     type_params:
@@ -203,10 +203,10 @@ metrics:
     type_params:
       measure: count_order_items
 
-  # --- Derived metrics ---
+  # --- Derived metrics (math on already-aggregated values) ---
 
-  - name: average_order_value
-    label: Average Order Value
+  - name: average_order_value_gmv
+    label: Average Order Value GMV
     description: GMV divided by number of orders. Safe as derived because both inputs are totals.
     type: derived
     type_params:
@@ -215,15 +215,15 @@ metrics:
         - name: gmv
         - name: orders
 
-  - name: order_gross_profit
-    label: Order Gross Profit
-    description: Revenue minus supply cost. Safe as derived because both are additive totals.
+  - name: gmv_gross_profit
+    label: GMV Gross Profit
+    description: GMV minus supply cost. Safe as derived because both are additive totals.
     type: derived
     type_params:
-      expr: gmv - order_cost
+      expr: gmv - order_supply_cost
       metrics:
         - name: gmv
-        - name: order_cost
+        - name: order_supply_cost
 
   - name: gmv_mom_change
     label: GMV Month-over-Month Change
@@ -264,11 +264,10 @@ saved_queries:
         - new_customer_orders
         - gmv
         - order_total
-        - order_cost
-        - order_gross_profit
+        - gmv_gross_profit
         - food_orders
         - drink_orders
-        - average_order_value
+        - average_order_value_gmv
       group_by:
         - TimeDimension('metric_time', 'day')
     exports:
