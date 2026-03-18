@@ -252,6 +252,15 @@ metrics:
       measure: order_items_subtotal
       window: 30 days
 
+  - name: gmv_to_cost_ratio
+    label: GMV to Cost Ratio
+    description: GMV divided by supply cost. How much revenue generated per dollar spent.
+    type: derived
+    type_params:
+      expr: gmv / median_revenue
+      metrics:
+        - name: gmv              # measure lives on orders semantic model
+        - name: median_revenue  # measure lives on order_item semantic model
 # ---------------------------------------------------------------------------
 # SAVED QUERIES
 # ---------------------------------------------------------------------------
