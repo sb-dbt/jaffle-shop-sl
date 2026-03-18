@@ -203,7 +203,7 @@ metrics:
     type_params:
       measure: count_order_items
 
-  # --- Derived metrics (math on already-aggregated values) ---
+  # --- Derived metrics ---
 
   - name: average_order_value
     label: Average Order Value
@@ -253,7 +253,7 @@ metrics:
       window: 30 days
 
 # ---------------------------------------------------------------------------
-# SAVED QUERIES (pre-built exports for Power BI / Dagster)
+# SAVED QUERIES
 # ---------------------------------------------------------------------------
 saved_queries:
   - name: order_metrics
