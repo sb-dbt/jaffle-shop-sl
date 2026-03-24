@@ -46,7 +46,7 @@ joined as (
         orders.ordered_at,
 
         products.product_name,
-        products.product_price+100,
+        products.product_price as product_price,
         products.is_food_item,
         products.is_drink_item,
 

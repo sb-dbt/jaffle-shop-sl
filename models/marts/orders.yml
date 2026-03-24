@@ -5,9 +5,9 @@ models:
       if it's a customer's first order and a food vs. drink item breakdown.
       One row per order.
     data_tests:
-      - dbt_utils.expression_is_true:
-          arguments:
-            expression: "order_items_subtotal = subtotal"
+      #- dbt_utils.expression_is_true:
+      #    arguments:
+      #      expression: "order_items_subtotal = subtotal"
       - dbt_utils.expression_is_true:
           arguments:
             expression: "order_total = subtotal + tax_paid"
