@@ -1,9 +1,9 @@
 models:
   - name: orders
     description: >
-      Order overview data mart, offering key details for each order including
-      if it's a customer's first order and a food vs. drink item breakdown.
-      One row per order.
+      Order overview data mart, offering key details for each order including if it's a customer's first order and a food vs. drink item breakdown. One row per order.
+       Order fact table. One row per order. Used for order-level metrics
+      including GMV, order counts, revenue, and cost.
     data_tests:
       #- dbt_utils.expression_is_true:
       #    arguments:
@@ -17,6 +17,8 @@ models:
         data_tests:
           - not_null
           - unique
+        entity:
+          type: primary
       - name: customer_id
         description: The foreign key relating to the customer who placed the order.
         data_tests:
@@ -24,246 +26,187 @@ models:
               arguments:
                 to: ref('stg_customers')
                 field: customer_id
+        entity:
+          type: foreign
+          name: customer
       - name: order_total
         description: The total amount of the order in USD including tax.
+        dimension:
+          type: categorical
+          name: order_total_dim
       - name: order_items_subtotal
         description: The pre-tax revenue from goods sold. Sum of product_price across all items in the order. Used for GMV.
       - name: count_order_items
         description: The total number of individual items in the order.
       - name: ordered_at
         description: The timestamp the order was placed at.
+        dimension:
+          type: time
+        granularity: day
       - name: order_cost
         description: The sum of supply expenses to fulfill the order.
       - name: tax_paid
         description: The tax paid on the order.
       - name: is_food_order
         description: A boolean indicating if this order included any food items.
+        dimension:
+          type: categorical
       - name: is_drink_order
         description: A boolean indicating if this order included any drink items.
+        dimension:
+          type: categorical
       - name: customer_order_number
         description: The sequential order number for this customer (1 = first order).
 
 # ---------------------------------------------------------------------------
 # SEMANTIC MODEL
 # ---------------------------------------------------------------------------
-semantic_models:
-  - name: orders
-    defaults:
-      agg_time_dimension: ordered_at
-    description: |
-      Order fact table. One row per order. Used for order-level metrics
-      including GMV, order counts, revenue, and cost.
-    model: ref('orders')
+        dimension:
+          type: categorical
+      - name: location_id
+        entity:
+          type: foreign
+          name: location
+    semantic_model:
+      enabled: true
+    agg_time_dimension: ordered_at
+    metrics:
+      - name: order_cost
+        description: Sum of cost for each order item.
+        label: Order Cost
+        type: simple
+        agg: sum
+      - name: gmv
+        label: Gross Merchandise Value
+        description: >
+          Pre-tax revenue from goods sold. Calculated as the sum of product prices
+          across all order items, before tax. This is the single source of truth
+          for GMV across all tools.
+        type: simple
+        agg: sum
+      - name: order_total
+        label: Order Total (inc. Tax)
+        description: Sum of total order amount including tax.
+        type: simple
+        agg: sum
+      - name: order_supply_cost
+        label: Order Supply Cost
+        description: Sum of supply costs to fulfill orders.
+        type: simple
+        agg: sum
+      - name: tax_paid
+        label: Tax Paid
+        description: Total tax collected across orders.
+        type: simple
+        agg: sum
+      - name: orders
+        label: Orders
+        description: Total count of orders.
+        type: simple
+        agg: sum
+        expr: 1
+      - name: new_customer_orders
+        label: New Customer Orders
+        description: Count of orders that are a customer's first order.
+        type: simple
+        filter: |
+          {{ Dimension('order_id__customer_order_number') }} = 1
 
-    entities:
-      - name: order_id
-        type: primary
-      - name: location
-        type: foreign
-        expr: location_id
-      - name: customer
-        type: foreign
-        expr: customer_id
+        agg: sum
+        expr: 1
+      - name: food_orders
+        label: Food Orders
+        description: Count of orders containing at least one food item.
+        type: simple
+        filter: |
+          {{ Dimension('order_id__is_food_order') }} = true
 
-    dimensions:
-      - name: ordered_at
-        type: time
-        expr: ordered_at
-        type_params:
-          time_granularity: day
-      - name: is_food_order
-        type: categorical
-      - name: is_drink_order
-        type: categorical
-      - name: customer_order_number
-        type: categorical
-      - name: order_total_dim
-        type: categorical
-        expr: order_total
+        agg: sum
+        expr: 1
+      - name: drink_orders
+        label: Drink Orders
+        description: Count of orders containing at least one drink item.
+        type: simple
+        filter: |
+          {{ Dimension('order_id__is_drink_order') }} = true
 
-    measures:
-      # Revenue / GMV
+        agg: sum
+        expr: 1
+      - name: large_orders
+        label: Large Orders
+        description: Count of orders with an order total of $20 or more.
+        type: simple
+        filter: |
+          {{ Dimension('order_id__order_total_dim') }} >= 20
+
+  # --- Item metrics ---
+
+        agg: sum
+        expr: 1
+      - name: items_sold
+        label: Items Sold
+        description: Total number of individual items sold across all orders.
+        type: simple
+        agg: sum
+        expr: count_order_items
+      - name: average_order_value_gmv
+        label: Average Order Value GMV
+        description: GMV divided by number of orders. Safe as derived because both inputs are totals.
+        type: derived
+        expr: gmv / orders
+        input_metrics:
+          - name: gmv
+          - name: orders
+
+      - name: gmv_gross_profit
+        label: GMV Gross Profit
+        description: GMV minus supply cost. Safe as derived because both are additive totals.
+        type: derived
+        expr: gmv - order_supply_cost
+        input_metrics:
+          - name: gmv
+          - name: order_supply_cost
+
+      - name: gmv_mom_change
+        label: GMV Month-over-Month Change
+        description: Absolute change in GMV compared to the same period one month prior.
+        type: derived
+        expr: gmv - gmv_prior_month
+        input_metrics:
+          - name: gmv
+          - name: gmv
+            offset_window: 1 month
+            alias: gmv_prior_month
+
       - name: order_items_subtotal
         description: Pre-tax revenue from goods sold. Sum of product_price per order. This is GMV.
         agg: sum
 
       # Order value including tax
-      - name: order_total
-        description: Total order amount including tax.
-        agg: sum
-
-      # Tax
-      - name: tax_paid
-        description: Total tax paid on the order.
-        agg: sum
-
-      # Supply cost
-      - name: order_cost
-        description: Sum of supply costs to fulfill the order.
-        agg: sum
-
-      # Item count — row-level column, safe to sum
-      - name: count_order_items
-        description: Total number of items sold across orders.
-        agg: sum
-        expr: count_order_items
-
-      # Order counter — used for order count metrics
-      - name: order_count
-        description: Count of orders (1 per row).
-        agg: sum
-        expr: 1
-
-# ---------------------------------------------------------------------------
-# METRICS
-# ---------------------------------------------------------------------------
+        type: simple
+        hidden: true
+      - name: cumulative_gmv
+        label: Cumulative GMV (All Time)
+        description: Running total of GMV across all time.
+        type: cumulative
+        input_metric: order_items_subtotal
+      - name: gmv_rolling_30d
+        label: GMV (Rolling 30 Days)
+        description: GMV over a trailing 30-day window.
+        type: cumulative
+        input_metric: order_items_subtotal
 metrics:
 
   # --- Core revenue metrics ---
-
-  - name: gmv
-    label: Gross Merchandise Value
-    description: >
-      Pre-tax revenue from goods sold. Calculated as the sum of product prices
-      across all order items, before tax. This is the single source of truth
-      for GMV across all tools.
-    type: simple
-    type_params:
-      measure: order_items_subtotal
-
-  - name: order_total
-    label: Order Total (inc. Tax)
-    description: Sum of total order amount including tax.
-    type: simple
-    type_params:
-      measure: order_total
-
-  - name: order_supply_cost
-    label: Order Supply Cost
-    description: Sum of supply costs to fulfill orders.
-    type: simple
-    type_params:
-      measure: order_cost
-
-  - name: tax_paid
-    label: Tax Paid
-    description: Total tax collected across orders.
-    type: simple
-    type_params:
-      measure: tax_paid
-
-  # --- Order count metrics ---
-
-  - name: orders
-    label: Orders
-    description: Total count of orders.
-    type: simple
-    type_params:
-      measure: order_count
-
-  - name: new_customer_orders
-    label: New Customer Orders
-    description: Count of orders that are a customer's first order.
-    type: simple
-    type_params:
-      measure: order_count
-    filter: |
-      {{ Dimension('order_id__customer_order_number') }} = 1
-
-  - name: food_orders
-    label: Food Orders
-    description: Count of orders containing at least one food item.
-    type: simple
-    type_params:
-      measure: order_count
-    filter: |
-      {{ Dimension('order_id__is_food_order') }} = true
-
-  - name: drink_orders
-    label: Drink Orders
-    description: Count of orders containing at least one drink item.
-    type: simple
-    type_params:
-      measure: order_count
-    filter: |
-      {{ Dimension('order_id__is_drink_order') }} = true
-
-  - name: large_orders
-    label: Large Orders
-    description: Count of orders with an order total of $20 or more.
-    type: simple
-    type_params:
-      measure: order_count
-    filter: |
-      {{ Dimension('order_id__order_total_dim') }} >= 20
-
-  # --- Item metrics ---
-
-  - name: items_sold
-    label: Items Sold
-    description: Total number of individual items sold across all orders.
-    type: simple
-    type_params:
-      measure: count_order_items
-
-  # --- Derived metrics (math on already-aggregated values) ---
-
-  - name: average_order_value_gmv
-    label: Average Order Value GMV
-    description: GMV divided by number of orders. Safe as derived because both inputs are totals.
-    type: derived
-    type_params:
-      expr: gmv / orders
-      metrics:
-        - name: gmv
-        - name: orders
-
-  - name: gmv_gross_profit
-    label: GMV Gross Profit
-    description: GMV minus supply cost. Safe as derived because both are additive totals.
-    type: derived
-    type_params:
-      expr: gmv - order_supply_cost
-      metrics:
-        - name: gmv
-        - name: order_supply_cost
-
-  - name: gmv_mom_change
-    label: GMV Month-over-Month Change
-    description: Absolute change in GMV compared to the same period one month prior.
-    type: derived
-    type_params:
-      expr: gmv - gmv_prior_month
-      metrics:
-        - name: gmv
-        - name: gmv
-          offset_window: 1 month
-          alias: gmv_prior_month
-
-  - name: cumulative_gmv
-    label: Cumulative GMV (All Time)
-    description: Running total of GMV across all time.
-    type: cumulative
-    type_params:
-      measure: order_items_subtotal
-
-  - name: gmv_rolling_30d
-    label: GMV (Rolling 30 Days)
-    description: GMV over a trailing 30-day window.
-    type: cumulative
-    type_params:
-      measure: order_items_subtotal
-      window: 30 days
 
   - name: gmv_to_cost_ratio
     label: GMV to Cost Ratio
     description: GMV divided by supply cost. How much revenue generated per dollar spent.
     type: derived
-    type_params:
-      expr: gmv / median_revenue
-      metrics:
-        - name: gmv              # measure lives on orders semantic model
-        - name: median_revenue  # measure lives on order_item semantic model
+    expr: gmv / median_revenue
+    input_metrics:
+      - name: gmv                # measure lives on orders semantic model
+      - name: median_revenue    # measure lives on order_item semantic model
 # ---------------------------------------------------------------------------
 # SAVED QUERIES
 # ---------------------------------------------------------------------------
